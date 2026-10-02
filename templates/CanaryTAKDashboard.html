@@ -444,9 +444,22 @@
                 body: JSON.stringify(payload)
             }).then(function (r) {
                 if (r.ok) { toast(successMsg || 'Saved', 'success'); }
-                else       { toast('Error saving settings', 'error'); }
+                else {
+                    state.firstLoad = true;
+                    state.editingIndex = null;
+                    pollStatus();
+                    return r.json().then(function (body) {
+                        toast(body.error || 'Error saving settings', 'error');
+                        return r;
+                    });
+                }
                 return r;
-            }).catch(function () { toast('Network error', 'error'); });
+            }).catch(function () {
+                state.firstLoad = true;
+                state.editingIndex = null;
+                pollStatus();
+                toast('Network error; reloading saved settings', 'error');
+            });
         }
 
         // ── Compass ───────────────────────────────────────────────
@@ -667,9 +680,14 @@
 
                 var info = document.createElement('div');
                 info.className = 'server-entry-info';
-                info.innerHTML =
-                    '<span class="server-entry-ip">' + srv.ip + '</span>' +
-                    '<span class="server-entry-station">Station ' + srv.station + '</span>';
+                var ipLabel = document.createElement('span');
+                ipLabel.className = 'server-entry-ip';
+                ipLabel.textContent = srv.ip;
+                var stationLabel = document.createElement('span');
+                stationLabel.className = 'server-entry-station';
+                stationLabel.textContent = 'Station ' + srv.station;
+                info.appendChild(ipLabel);
+                info.appendChild(stationLabel);
 
                 var actions = document.createElement('div');
                 actions.className = 'server-entry-actions';
@@ -753,10 +771,11 @@
                     : '';
                 krakenRow.innerHTML =
                     '<div class="status-indicator ' + (srv.reachable ? 'ok' : 'err') + '" style="' + dotStyle + '"></div>' +
-                    '<span class="status-key" style="color:' + color + ';opacity:0.9">Stn ' + srv.station + '</span>' +
-                    '<span class="status-val' + (srv.reachable ? '' : ' dim') + '">' +
-                        (srv.reachable ? srv.ip + ':8081' : srv.ip + ' \u2014 unreachable') +
-                    '</span>';
+                    '<span class="status-key" style="color:' + color + ';opacity:0.9"></span>' +
+                    '<span class="status-val' + (srv.reachable ? '' : ' dim') + '"></span>';
+                krakenRow.querySelector('.status-key').textContent = 'Stn ' + srv.station;
+                krakenRow.querySelector('.status-val').textContent =
+                    srv.reachable ? srv.ip + ':8081' : srv.ip + ' \u2014 unreachable';
                 container.appendChild(krakenRow);
 
                 if (srv.reachable) {
@@ -881,6 +900,10 @@
                 // If there is exactly one server, auto-open it
                 if (state.servers.length === 1) {
                     openServerConfig(0);
+                } else if (state.editingIndex === null) {
+                    document.getElementById('serverSettingsPrompt').style.display = '';
+                    document.getElementById('serverSettingsForm').style.display = 'none';
+                    document.getElementById('serverSettingsBadge').textContent = 'No server selected';
                 }
             }
         }

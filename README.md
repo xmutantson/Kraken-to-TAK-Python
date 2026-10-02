@@ -8,6 +8,33 @@ A Python application with html dashboard designed to help use your KrakenSDR wit
 For use in a non-production environment.
 Defaults are set to be run on the same server as your KrakenSDR server, however other network configurations should work.
 
+## Dependencies and offline validation
+
+Use an isolated virtual environment and install `requirements.txt`. To test
+without starting the bridge, web server, GPS connection, or TAK transmission:
+
+```
+python -m unittest discover -s tests -v
+node --test tests/dashboard.test.cjs
+```
+
+Python tests require the declared application dependencies. Dashboard tests use
+Node's built-in test runner and need no npm packages. Tests use synthetic data,
+temporary config files, mocked transports, and guards against real sockets.
+
+Settings are validated and saved atomically before becoming active. A failed save
+returns an error and retains the previous settings. Startup refuses corrupt or
+unsupported config instead of silently running with defaults. Keep a backup when
+migrating an existing `config.json`; valid legacy single-server settings load
+without rewriting the file, and the next successful save uses the multi-server
+format. Station IDs must be unique; exclusion angles are either both set or both
+cleared. Multicast and line persistence choices are retained.
+
+The dashboard packet count means logical events accepted by at least one local
+UDP send, not delivery acknowledgements from a TAK client. See
+[implementation notes](IMPLEMENTATION_NOTES.md) for upstream provenance, remaining
+GPS limitations, and checks intentionally not performed.
+
 Tested using Python and Python 3 with a Chrome browser.
 # Quick Start
 Step 1:
