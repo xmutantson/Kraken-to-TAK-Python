@@ -73,3 +73,34 @@ New line with new UID
 	-Persist DOA Line will randomize the UID of the Line XML payload which will create a new line for each DOA bearing instead of overwriting the same line.
 
 <img width="330" alt="Screenshot 2024-02-11 at 5 11 29 PM" src="https://github.com/canaryradio/Kraken-to-TAK-Python/assets/127666889/1a7231f5-586b-49fe-89b5-749bdfb1fd35">
+
+## GPS coordinate presence
+
+The GPSD response adapter preserves absent latitude/longitude before gpsd-py3
+can default them to zero. A partial fix uses the Kraken fallback; explicit zero
+coordinates remain valid. The adapter replaces the dependency's response class
+inside this process, without modifying installed packages or transport behavior.
+Offline tests exercise both decoded packets and the real poll decoder with a
+synthetic stream. The existing blocking GPSD read limitation still applies.
+
+## Settings exposure: static review and remediation options
+
+The current application starts Flask on all interfaces (`0.0.0.0:8000`), and
+`/update_settings` has no authentication check. Any client able to reach it can
+change persisted bridge settings and destinations. This is a source-code finding;
+no running instance or network exposure was tested.
+
+Before a separately authorized deployment, choose an access policy. Options are:
+
+- Bind the dashboard to loopback for local administration, with authenticated
+  tunneling if remote access is required.
+- Restrict reachability to an approved management network using firewall rules.
+- Put authentication and TLS at a reverse proxy, restricting direct access to
+  the Flask listener so clients cannot bypass the proxy.
+- Add application authentication and authorization for settings changes, with
+  CSRF protection if browser sessions/cookies are used.
+
+Network restriction reduces reachability but does not authenticate users on the
+allowed network. Proxy/application controls need deployment-specific design and
+validation. This repair documents these options only: bind addresses, routes,
+credentials, live configuration, and security settings are unchanged.

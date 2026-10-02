@@ -1,4 +1,4 @@
-import gpsd
+from gpsd_presence import gpsd
 import requests
 import socket
 import time

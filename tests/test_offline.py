@@ -20,6 +20,8 @@ def sample_parts(lat='12.5', lon='34.5', bearing='359.5'):
 
 
 class OfflineTest(unittest.TestCase):
+    gps_get_current = staticmethod(bridge.gpsd.get_current)
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
@@ -130,6 +132,59 @@ class DataTests(OfflineTest):
         with patch.object(bridge.gpsd, 'connect'), patch.object(bridge.gpsd, 'get_current',
                 return_value=SimpleNamespace(mode=3, lat=float('nan'), lon=0)):
             self.assertEqual(bridge.get_gps_data(sample_parts()), (12.5, 34.5))
+
+    def test_real_decoder_preserves_missing_coordinate_presence(self):
+        for tpv in ({'mode': 2, 'lat': 51.0}, {'mode': 3, 'lon': 0},
+                    {'mode': 2}, {'mode': 3, 'lat': None, 'lon': 1}):
+            with self.subTest(tpv=tpv):
+                raw = {'active': 1, 'tpv': [tpv], 'sky': [{}]}
+                original = copy.deepcopy(raw)
+                packet = bridge.gpsd.GpsResponse.from_json(raw)
+                self.assertEqual(raw, original)
+                with patch.object(bridge.gpsd, 'connect'), patch.object(
+                        bridge.gpsd, 'get_current', return_value=packet):
+                    self.assertEqual(bridge.get_gps_data(sample_parts()), (12.5, 34.5))
+                    self.assertEqual(bridge.get_gps_data(), (None, None))
+
+    def test_real_decoder_accepts_explicit_zero_coordinates(self):
+        for lat, lon in ((0, 0), (51, 0), (0, -73), (-90, 180)):
+            with self.subTest(lat=lat, lon=lon):
+                packet = bridge.gpsd.GpsResponse.from_json({
+                    'active': 1, 'tpv': [{'mode': 2, 'lat': lat, 'lon': lon}], 'sky': [{}]})
+                with patch.object(bridge.gpsd, 'connect'), patch.object(
+                        bridge.gpsd, 'get_current', return_value=packet):
+                    self.assertEqual(bridge.get_gps_data(sample_parts()), (lat, lon))
+
+    def test_real_decoder_uses_last_tpv_without_carrying_old_coordinates(self):
+        raw = {'active': 1, 'tpv': [{'mode': 3, 'lat': 1, 'lon': 2},
+                                 {'mode': 2, 'lat': 51}], 'sky': [{}]}
+        packet = bridge.gpsd.GpsResponse.from_json(raw)
+        self.assertEqual(packet.lat, 51)
+        self.assertIsNone(packet.lon)
+
+    def test_installed_poll_decoder_with_in_memory_stream(self):
+        # Restore the real get_current under the live-I/O guard, but supply only
+        # an in-memory stream. This exercises the dependency's actual decoder lookup.
+        raw = {'class': 'POLL', 'active': 1,
+               'tpv': [{'mode': 2, 'lat': 51}], 'sky': [{}]}
+        stream = Mock()
+        stream.readline.return_value = json.dumps(raw)
+        original = self.gps_get_current
+        with patch.object(bridge.gpsd, 'gpsd_stream', stream), patch.object(
+                bridge.gpsd, 'get_current', original), patch.object(bridge.gpsd, 'connect'):
+            self.assertEqual(bridge.get_gps_data(sample_parts()), (12.5, 34.5))
+        stream.write.assert_called_once_with('?POLL;\n')
+
+    def test_partial_real_packet_poll_emits_fallback_coordinates(self):
+        packet = bridge.gpsd.GpsResponse.from_json({
+            'active': 1, 'tpv': [{'mode': 2, 'lat': 51}], 'sky': [{}]})
+        with patch.object(bridge.gpsd, 'connect'), patch.object(
+                bridge.gpsd, 'get_current', return_value=packet), patch.object(
+                bridge, 'fetch_kraken_data', return_value=sample_parts()), patch.object(
+                bridge, 'send_payload') as send:
+            bridge.poll_once()
+        point = ET.fromstring(send.call_args_list[0].args[0]).find('point')
+        self.assertEqual((float(point.get('lat')), float(point.get('lon'))), (12.5, 34.5))
 
     def test_missing_gps_and_bad_fallback(self):
         with patch.object(bridge.gpsd, 'connect', side_effect=OSError('offline')):
